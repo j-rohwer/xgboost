@@ -151,24 +151,31 @@ DMatrix* DMatrix::Load(const std::string& uri,
   if (load_row_split) {
     partid = rabit::GetRank();
     npart = rabit::GetWorldSize();
+  } else {
+    // test option to load in part
+    npart = dmlc::GetEnv("XGBOOST_TEST_NPART", 1);
+    if (npart != 1) {
+      LOG(CONSOLE) << "Partial load option on npart=" << npart;
+    }
   }
-
   // legacy handling of binary data loading
   if (file_format == "auto" && !load_row_split) {
     int magic;
-    std::unique_ptr<dmlc::Stream> fi(dmlc::Stream::Create(fname.c_str(), "r"));
-    common::PeekableInStream is(fi.get());
-     if (is.PeekRead(&magic, sizeof(magic)) == sizeof(magic) &&
-         magic == data::SimpleCSRSource::kMagic) {
-       std::unique_ptr<data::SimpleCSRSource> source(new data::SimpleCSRSource());
-       source->LoadBinary(&is);
-       DMatrix* dmat = DMatrix::Create(std::move(source), cache_file);
-       if (!silent) {
-         LOG(CONSOLE) << dmat->info().num_row << 'x' << dmat->info().num_col << " matrix with "
-                      << dmat->info().num_nonzero << " entries loaded from " << uri;
-       }
-       return dmat;
-     }
+    std::unique_ptr<dmlc::Stream> fi(dmlc::Stream::Create(fname.c_str(), "r", true));
+    if (fi.get() != nullptr) {
+      common::PeekableInStream is(fi.get());
+      if (is.PeekRead(&magic, sizeof(magic)) == sizeof(magic) &&
+          magic == data::SimpleCSRSource::kMagic) {
+        std::unique_ptr<data::SimpleCSRSource> source(new data::SimpleCSRSource());
+        source->LoadBinary(&is);
+        DMatrix* dmat = DMatrix::Create(std::move(source), cache_file);
+        if (!silent) {
+          LOG(CONSOLE) << dmat->info().num_row << 'x' << dmat->info().num_col << " matrix with "
+                       << dmat->info().num_nonzero << " entries loaded from " << uri;
+        }
+        return dmat;
+      }
+    }
   }
 
   std::string ftype = file_format;
@@ -247,12 +254,21 @@ SparsePage::Format* SparsePage::Format::Create(const std::string& name) {
   return (e->body)();
 }
 
-std::string SparsePage::Format::DecideFormat(const std::string& cache_prefix) {
+std::pair<std::string, std::string>
+SparsePage::Format::DecideFormat(const std::string& cache_prefix) {
   size_t pos = cache_prefix.rfind(".fmt-");
+
   if (pos != std::string::npos) {
-    return cache_prefix.substr(pos + 5, cache_prefix.length());
+    std::string fmt = cache_prefix.substr(pos + 5, cache_prefix.length());
+    size_t cpos = fmt.rfind('-');
+    if (cpos != std::string::npos) {
+      return std::make_pair(fmt.substr(0, cpos), fmt.substr(cpos + 1, fmt.length()));
+    } else {
+      return std::make_pair(fmt, fmt);
+    }
   } else {
-    return "raw";
+    std::string raw = "raw";
+    return std::make_pair(raw, raw);
   }
 }
 
