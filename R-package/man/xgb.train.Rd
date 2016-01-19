@@ -7,7 +7,7 @@
 xgb.train(params = list(), data, nrounds, watchlist = list(), obj = NULL,
   feval = NULL, verbose = 1, print.every.n = 1L,
   early.stop.round = NULL, maximize = NULL, save_period = 0,
-  save_name = "xgboost.model", ...)
+  save_name = "xgboost.model", resume = NULL, ...)
 }
 \arguments{
 \item{params}{the list of parameters. 
@@ -17,6 +17,7 @@ xgb.train(params = list(), data, nrounds, watchlist = list(), obj = NULL,
 \itemize{
   \item \code{booster} which booster to use, can be \code{gbtree} or \code{gblinear}. Default: \code{gbtree}
   \item \code{silent} 0 means printing running messages, 1 means silent mode. Default: 0
+  \item \code{resume} xgb.Booster object to resume training, or name of model file to load and resume training. Default: \code{NULL}
 }
  
 2. Booster Parameters

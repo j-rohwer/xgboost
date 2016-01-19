@@ -9,6 +9,7 @@
 #' \itemize{
 #'   \item \code{booster} which booster to use, can be \code{gbtree} or \code{gblinear}. Default: \code{gbtree}
 #'   \item \code{silent} 0 means printing running messages, 1 means silent mode. Default: 0
+#'   \item \code{resume} xgb.Booster object to resume training, or name of model file to load and resume training. Default: \code{NULL}
 #' }
 #'  
 #' 2. Booster Parameters
@@ -17,7 +18,7 @@
 #' 
 #' \itemize{
 #'   \item \code{eta} control the learning rate: scale the contribution of each tree by a factor of \code{0 < eta < 1} when it is added to the current approximation. Used to prevent overfitting by making the boosting process more conservative. Lower value for \code{eta} implies larger value for \code{nrounds}: low \code{eta} value means model more robust to overfitting but slower to compute. Default: 0.3
-#'   \item \code{gamma} minimum loss reduction required to make a further partition on a leaf node of the tree. the larger, the more conservative the algorithm will be. 
+#'   \item \code{gamma} minimum loss reduction required to make a further partition on a leaf node of the tree. the larger, the more conservative the algorithm will be. Default: 0
 #'   \item \code{max_depth} maximum depth of a tree. Default: 6
 #'   \item \code{min_child_weight} minimum sum of instance weight (hessian) needed in a child. If the tree partition step results in a leaf node with the sum of instance weight less than min_child_weight, then the building process will give up further partitioning. In linear regression mode, this simply corresponds to minimum number of instances needed to be in each node. The larger, the more conservative the algorithm will be. Default: 1
 #'   \item \code{subsample} subsample ratio of the training instance. Setting it to 0.5 means that xgboost randomly collected half of the data instances to grow trees and this will prevent overfitting. It makes computation shorter (because less data to analyse). It is advised to use this parameter with \code{eta} and increase \code{nround}. Default: 1 
@@ -123,7 +124,7 @@
 xgb.train <- function(params=list(), data, nrounds, watchlist = list(),
                       obj = NULL, feval = NULL, verbose = 1, print.every.n=1L,
                       early.stop.round = NULL, maximize = NULL,
-                      save_period = 0, save_name = "xgboost.model", ...) {
+                      save_period = 0, save_name = "xgboost.model", resume=NULL, ...) {
   dtrain <- data
   if (typeof(params) != "list") {
     stop("xgb.train: first argument params must be list")
@@ -193,10 +194,30 @@ xgb.train <- function(params=list(), data, nrounds, watchlist = list(),
       warning('Only the first data set in watchlist is used for early stopping process.')
   }
 
-  handle <- xgb.Booster(params, append(watchlist, dtrain))
-  bst <- xgb.handleToBooster(handle)
+  # Parameter schedules
+  scheduled <- xgb.get.scheduled(params, nrounds)
+  if (!is.null(scheduled)) {
+    params[names(scheduled)] <- as.list(scheduled[1, ])
+  }
+
+  # Either create new booster or resume training
+  bst <- if (is.null(resume)) {
+    xgb.handleToBooster(xgb.Booster(params, append(watchlist, dtrain)))
+  } else if (is.character(resume)) {
+    xgb.load(resume)
+  } else if (class(resume)=="xgb.Booster") {
+    resume
+  } else {
+    stop("xgb.train: resume must be the name of a model file or an xgb.Booster object")
+  }
+
   print.every.n <- max( as.integer(print.every.n), 1L)
   for (i in 1:nrounds) {
+    if (!is.null(scheduled)) {
+      param.updates <- as.list(scheduled[i, ])
+      names(param.updates) <- names(scheduled)
+      xgb.set.params(bst$handle, param.updates)
+    }
     succ <- xgb.iter.update(bst$handle, dtrain, i - 1, obj)
     if (length(watchlist) != 0) {
       msg <- xgb.iter.eval(bst$handle, watchlist, i - 1, feval)

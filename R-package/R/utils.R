@@ -46,6 +46,27 @@ xgb.setinfo <- function(dmat, name, info) {
   return(FALSE)
 }
 
+# Set params on a booster
+xgb.set.params <- function(handle, params) {
+  if (length(params) != 0) {
+    for (i in 1:length(params)) {
+      p <- params[i]
+      .Call("XGBoosterSetParam_R", handle, gsub("\\.", "_", names(p)), as.character(p),
+            PACKAGE = "xgboost")
+    }
+  }
+}
+
+# Accept scheduled parameters than can change each round
+xgb.get.scheduled <- function(params, nrounds) {
+  p <- params[c("eta", "gamma", "subsample", "max_depth", "max.depth", "min_child_weight", "min.child.weight")]
+  p <- p[sapply(p, length) > 1]
+  mapply(function(v, nm) {
+    if (length(v)!=nrounds) stop("xgb.get.scheduled: length of ", nm, " must be 1 or must match nrounds", call.=FALSE)
+  }, p, names(p))
+  if (length(p) > 0) as.data.frame(p) else NULL
+}
+
 # construct a Booster from cachelist
 xgb.Booster <- function(params = list(), cachelist = list(), modelfile = NULL) {
   if (typeof(cachelist) != "list") {
@@ -57,13 +78,7 @@ xgb.Booster <- function(params = list(), cachelist = list(), modelfile = NULL) {
     }
   }
   handle <- .Call("XGBoosterCreate_R", cachelist, PACKAGE = "xgboost")
-  if (length(params) != 0) {
-    for (i in 1:length(params)) {
-      p <- params[i]
-      .Call("XGBoosterSetParam_R", handle, gsub("\\.", "_", names(p)), as.character(p),
-            PACKAGE = "xgboost")
-    }
-  }
+  xgb.set.params(handle, params)
   if (!is.null(modelfile)) {
     if (typeof(modelfile) == "character") {
       .Call("XGBoosterLoadModel_R", handle, modelfile, PACKAGE = "xgboost")
